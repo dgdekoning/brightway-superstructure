@@ -35,6 +35,51 @@ def convert_key_to_fields(df: pd.DataFrame) -> pd.DataFrame:
     return subdf
 
 
+def check_for_invalid_codes(df: pd.DataFrame, struct_db: str) -> set:
+    """Check if the given superstructure contains keys for the superstructure
+    database that do not exist.
+
+    Return a set of codes where the keys are invalid.
+    """
+    codes = set(x[1] for x in df["from key"] if x[0] == struct_db).union(
+        x[1] for x in df["to key"] if x[0] == struct_db
+    )
+    missing_codes = set()
+    query = (AD.select(AD.code)
+             .where((AD.code.in_(codes)) & (AD.database == struct_db))
+             .tuples())
+    if not len(codes) == query.count():
+        # This means not all of the codes exist in the superstructure.
+        missing_codes = codes.difference(x[0] for x in query.iterator())
+    return missing_codes
+
+
+def handle_code_weirdness(codes: set, dbs: set, struct_db: str) -> dict:
+    """Sometimes, we might be working with weird data, where the codes of
+    activities no longer match, while the rest of the data absolutely does.
+
+    So, here we takes these codes and original databases and yoink the
+    other important data (location, name, product, etc.), using that
+    to find a match in the superstructure database.
+
+    The return value is a dictionary where the invalid keys are linked
+    to the valid ones.
+    """
+    query = (AD.select(AD.name, AD.product, AD.location, AD.code)
+             .where((AD.code.in_(codes)) & (AD.database.in_(dbs)))
+             .tuples())
+    combo_dict = {x[:-1]: x[-1] for x in query.iterator()}
+
+    names, products, locations = zip(*combo_dict.keys())
+    query = (AD.select(AD.name, AD.product, AD.location, AD.code)
+             .where((AD.name.in_(set(names))) & (AD.product.in_(set(products)))
+                    & (AD.location.in_(set(locations))) & (AD.database == struct_db))
+             .tuples())
+    match_dict = {x[:-1]: x[-1] for x in query.iterator()}
+    final = {(struct_db, combo_dict[k]): (struct_db, v) for k, v in match_dict.items()}
+    return final
+
+
 # Exchanges
 def select_superstructure_indexes(struct: str) -> set:
     query = (ED.select(ED.input_code, ED.output_code)
