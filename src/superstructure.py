@@ -8,7 +8,8 @@ import pandas as pd
 from .brightway import (
     convert_key_to_fields, select_superstructure_indexes,
     find_missing_exchanges, select_exchange_data,
-    swap_exchange_activities, nullify_exchanges
+    swap_exchange_activities, nullify_exchanges,
+    check_for_invalid_codes, handle_code_weirdness,
 )
 from .utils import SUPERSTRUCTURE, TO_ALL
 
@@ -95,7 +96,7 @@ class Builder(object):
         # Now feed the dictionary into a pandas DataFrame
         self.superstructure = self.build_superstructure_dataframe(super_dict)
 
-    def filter_superstructure(self):
+    def filter_superstructure(self) -> None:
         """Take the built superstructure and drop any exchanges where there
         is no differences between all databases.
         """
@@ -123,6 +124,27 @@ class Builder(object):
             self.superstructure[missing] = self.superstructure[missing].apply(
                 lambda x: x.fillna(0), axis=1
             )
+
+    def validate_superstructure(self) -> None:
+        """Parse the DataFrame and check that all the relevant keys exist in
+        the superstructure database.
+
+        If this is not the case, begin trying to repair it.
+        """
+        print("Searching superstructure for invalid keys")
+        missing_codes = check_for_invalid_codes(self.superstructure, self.name)
+        if missing_codes:
+            print("Found {} unknown keys, attempting repair.".format(len(missing_codes)))
+            corrections = handle_code_weirdness(
+                missing_codes, set(self.selected_deltas), self.name
+            )
+            self.superstructure = self._fix_broken_keys(self.superstructure, corrections)
+            still_missing = check_for_invalid_codes(self.superstructure, self.name)
+            if still_missing:
+                raise KeyError("There are broken keys in the superstructure", still_missing)
+            print("Finished fixing keys.")
+        else:
+            print("No unknown keys found.")
 
     @staticmethod
     def construct_ss_dictionary(data: Iterable) -> dict:
@@ -210,3 +232,21 @@ class Builder(object):
             exc.get("output")[0]: exc.get("amount")
             for exc in data
         }
+
+    @staticmethod
+    def _fix_broken_keys(df: pd.DataFrame, correct_codes: dict) -> pd.DataFrame:
+        """Given a superstructure dataframe and fix the broken keys by
+        switching in the correct codes.
+
+        With help from https://stackoverflow.com/a/49259581/14506150
+        """
+        from_keys = df.index[df["from key"].isin(correct_codes)]
+        to_keys = df.index[df["to key"].isin(correct_codes)]
+
+        # Only apply the mapping to the column if the broken keys are found.
+        if not from_keys.empty:
+            df.loc[from_keys, "from key"] = df.loc[from_keys, "from key"].map(correct_codes)
+        if not to_keys.empty:
+            df.loc[to_keys, "to key"] = df.loc[to_keys, "to key"].map(correct_codes)
+
+        return df
