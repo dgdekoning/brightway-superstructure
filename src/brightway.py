@@ -126,26 +126,21 @@ def select_superstructure_indexes(struct: str) -> set:
     return indexes
 
 
-def select_exchanges_by_database_codes(db_name: str, codes: set):
-    inputs = set(x[0] for x in codes)
-    outputs = set(x[1] for x in codes)
-    query = (ED.select()
-             .where((ED.output_database == db_name) &
-                    (ED.input_code.in_(inputs)) &
-                    (ED.output_code.in_(outputs)))
-             .namedtuples())
-    return query
-
-
-def find_missing_exchanges(superstruct: set, delta: str) -> (set, list):
+def find_missing_exchanges(superstruct: set, delta: str) -> Tuple[set, list]:
     query = (ED.select(ED.input_code, ED.output_code)
              .where(ED.output_database == delta)
              .distinct()
              .tuples())
     diff = set(x for x in query.iterator()).difference(superstruct)
     # Now query again, and create a list of exchanges of the diff.
-    query = select_exchanges_by_database_codes(delta, diff)
-    diff_list = [x for x in query.iterator()]
+    inputs = set(x[0] for x in diff)
+    outputs = set(x[1] for x in diff)
+    query = (ED.select(ED.data)
+             .where((ED.output_database == delta) &
+                    (ED.input_code.in_(inputs)) &
+                    (ED.output_code.in_(outputs)))
+             .tuples())
+    diff_list = [x[0] for x in query.iterator()]
     return diff, diff_list
 
 
@@ -156,6 +151,23 @@ def select_exchange_data(db_name: str):
              .tuples())
     data = (x[0] for x in query.iterator())
     return data
+
+
+def structure_exchanges(data: List[dict], super_db: str, deltas: set) -> List[Exchange]:
+    """Take a list of dictionaries and structure them into a list of Exchange
+    objects, adjusted for the superstructure database.
+    """
+    def alter_data(d):
+        d["amount"] = 0
+        key = d["input"]
+        d["input"] = (super_db, key[1]) if key[0] in deltas else key
+        key = d["output"]
+        d["output"] = (super_db, key[1]) if key[0] in deltas else key
+        return d
+
+    altered_exchanges = map(alter_data, data)
+    new_exchanges = [Exchange(**exc) for exc in altered_exchanges]
+    return new_exchanges
 
 
 def nullify_exchanges(data: List[dict]) -> List[dict]:

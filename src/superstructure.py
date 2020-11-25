@@ -8,9 +8,9 @@ import pandas as pd
 from .brightway import (
     convert_key_to_fields, select_superstructure_indexes,
     find_missing_exchanges, select_exchange_data,
-    swap_exchange_activities, nullify_exchanges,
     check_for_invalid_codes, handle_code_weirdness,
     select_superstructure_codes, find_missing_activities,
+    structure_activities, structure_exchanges,
 )
 from .utils import SUPERSTRUCTURE, FROM_ALL, TO_ALL
 
@@ -56,12 +56,20 @@ class Builder(object):
         initial, deltas = databases[0], databases[1:]
         print("Superstructure: {}, deltas: {}".format(initial, ", ".join(deltas)))
         builder = cls.initialize(initial, deltas)
+        print("Superstructure: {}, deltas: {}".format(superstructure, ", ".join(databases)))
+        builder = cls.initialize(superstructure, databases)
+        print("Amount of activities in superstructure: {}".format(len(builder.unique_codes)))
+        builder.find_missing_activities()
+        print("Total amount of activities in superstructure: {}".format(len(builder.unique_codes)))
+        if builder.missing_activities:
+            print("Storing {} new activities for superstructure.".format(len(builder.missing_activities)))
+            builder.expand_superstructure_activities()
         print("Amount of exchanges in superstructure: {}".format(len(builder.unique_indexes)))
         builder.find_missing_exchanges()
         print("Total amount of exchanges in superstructure: {}".format(len(builder.unique_indexes)))
         if builder.missing_exchanges:
-            print("Storing new exchanges for superstructure.".format(len(builder.missing_exchanges)))
-            builder.expand_superstructure()
+            print("Storing {} new exchanges for superstructure.".format(len(builder.missing_exchanges)))
+            builder.expand_superstructure_exchanges()
         return builder
 
     def find_missing_activities(self) -> None:
@@ -80,16 +88,22 @@ class Builder(object):
             self.unique_indexes = self.unique_indexes.union(d_set)
             print("{} adds {} new exchanges to superstructure".format(d, len(d_set)))
 
-    def expand_superstructure(self) -> None:
+    def expand_superstructure_activities(self) -> None:
+        """Store the missing activities found by `find_missing_activities`."""
+        new_activities = structure_activities(self.missing_activities, self.name)
+        with sqlite3_lci_db.transaction() as txn:
+            for i, act in enumerate(new_activities):
+                act.save()
+                if i % 1000 == 0:
+                    txn.commit()
+
+    def expand_superstructure_exchanges(self) -> None:
         """Given that we have an initialized Builder, prepare and store
         the new exchanges.
         """
         deltas_set = set(self.selected_deltas)
-        nulled = nullify_exchanges([x.data for x in self.missing_exchanges])
-        # Prepare new exchanges by swapping the
-        new_excs = [
-            swap_exchange_activities(row, self.name, deltas_set) for row in nulled
-        ]
+        # Prepare new exchanges
+        new_excs = structure_exchanges(self.missing_exchanges, self.name, deltas_set)
         # Save all of the new exchanges to the superstructure database.
         with sqlite3_lci_db.transaction() as txn:
             for i, exc in enumerate(new_excs):
