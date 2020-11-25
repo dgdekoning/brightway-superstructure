@@ -152,7 +152,7 @@ def find_missing_exchanges(superstruct: set, delta: str) -> (set, list):
 def select_exchange_data(db_name: str):
     query = (ED.select(ED.data)
              .where((ED.output_database == db_name) &
-                    (ED.type.in_(["biosphere", "technosphere"])))
+                    (ED.type.in_(["biosphere", "technosphere", "production"])))
              .tuples())
     data = (x[0] for x in query.iterator())
     return data
