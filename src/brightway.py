@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-from typing import List
+from typing import List, Tuple
 
 from bw2data.backends.peewee import (
-    Exchange, ActivityDataset as AD, ExchangeDataset as ED
+    Activity, Exchange, ActivityDataset as AD, ExchangeDataset as ED
 )
 import numpy as np
 import pandas as pd
@@ -78,6 +78,43 @@ def handle_code_weirdness(codes: set, dbs: set, struct_db: str) -> dict:
     match_dict = {x[:-1]: x[-1] for x in query.iterator()}
     final = {(struct_db, combo_dict[k]): (struct_db, v) for k, v in match_dict.items()}
     return final
+
+
+def select_superstructure_codes(struct: str) -> set:
+    query = (AD.select(AD.code)
+             .where(AD.database == struct)
+             .distinct()
+             .tuples())
+    codes = set(x[0] for x in query.iterator())
+    return codes
+
+
+def find_missing_activities(existing_codes: set, delta: str) -> Tuple[set, list]:
+    query = (AD.select(AD.code)
+             .where(AD.database == delta)
+             .distinct()
+             .tuples())
+    diff = set(x[0] for x in query.iterator()).difference(existing_codes)
+    # Now query again, and create a list of Activities of the diff.
+    query = (AD.select()
+             .where((AD.database == delta) & (AD.code.in_(diff))))
+    diff_list = [Activity(x) for x in query.iterator()]
+    return diff, diff_list
+
+
+def structure_activities(data: List[Activity], db_name: str) -> List[Activity]:
+    """Takes a list of activity objects and generates a list of new Activity
+    objects with the (output) database name altered.
+    """
+    altered = []
+    for act in data:
+        activity = Activity()
+        for key, value in act.items():
+            activity[key] = value
+        # Alter the database.
+        activity._data["database"] = db_name
+        altered.append(activity)
+    return altered
 
 
 # Exchanges
