@@ -43,12 +43,16 @@ class Builder(object):
         return builder
 
     @classmethod
-    def superstructure_from_databases(cls, databases: List[str]) -> 'Builder':
+    def superstructure_from_databases(cls, databases: List[str], superstructure: str) -> 'Builder':
+        """Given a list of database names and the name of the superstructure,
+        upgrade or create the superstructure database.
         """
-        docstring
-        """
-        assert len(databases) > 1, "Multiple items required"
+        assert len(databases) >= 1, "At least one database should be included"
+        assert len(databases) == len(set(databases)), "Duplicates are not allowed in the databases"
         assert all(db in bw.databases for db in databases), "All databases must exist in the project"
+        if superstructure not in bw.databases:
+            db = bw.Database(superstructure)
+            db.register()
         initial, deltas = databases[0], databases[1:]
         print("Superstructure: {}, deltas: {}".format(initial, ", ".join(deltas)))
         builder = cls.initialize(initial, deltas)
