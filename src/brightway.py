@@ -168,30 +168,3 @@ def structure_exchanges(data: List[dict], super_db: str, deltas: set) -> List[Ex
     altered_exchanges = map(alter_data, data)
     new_exchanges = [Exchange(**exc) for exc in altered_exchanges]
     return new_exchanges
-
-
-def nullify_exchanges(data: List[dict]) -> List[dict]:
-    """Take a list of exchange dictionaries, extract all the amounts
-    and set the 'amount' in the dictionaries to 0."""
-    def set_null(d):
-        d["amount"] = 0
-        return d
-    nulled = list(map(set_null, data))
-    return nulled
-
-
-def swap_exchange_activities(data: dict, super_db: str, delta_set: set) -> Exchange:
-    """Take the exchange data and replace one or two activities inside with
-    new ones containing the same information.
-
-    This works best with activities constructed like those of ecoinvent.
-    """
-    in_key = data.get("input", ("",))
-    out_key = data.get("output", ("",))
-    if in_key[0] in delta_set:
-        data["input"] = (super_db, in_key[1])
-    if out_key[0] in delta_set:
-        data["output"] = (super_db, out_key[1])
-    # Constructing the Exchange this way will cause a new row to be written
-    e = Exchange(**data)
-    return e
