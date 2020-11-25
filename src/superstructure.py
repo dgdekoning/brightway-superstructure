@@ -10,6 +10,7 @@ from .brightway import (
     find_missing_exchanges, select_exchange_data,
     swap_exchange_activities, nullify_exchanges,
     check_for_invalid_codes, handle_code_weirdness,
+    select_superstructure_codes, find_missing_activities,
 )
 from .utils import SUPERSTRUCTURE, FROM_ALL, TO_ALL
 
@@ -19,9 +20,11 @@ class Builder(object):
         # Initial values for the builder to set.
         self.name: Optional[str] = None
         self.selected_deltas: list = []
+        self.unique_codes: set = set()
         self.unique_indexes: set = set()
 
-        # Values created by finding exchanges missing from superstructure.
+        # Values created by finding missing data from superstructure.
+        self.missing_activities: list = []
         self.missing_exchanges: list = []
 
         # Actual superstructure scenario dataframe.
@@ -34,6 +37,7 @@ class Builder(object):
         """
         builder = cls()
         builder.name = initial
+        builder.unique_codes = select_superstructure_codes(initial)
         builder.unique_indexes = select_superstructure_indexes(initial)
         builder.selected_deltas = deltas
         return builder
@@ -55,6 +59,14 @@ class Builder(object):
             print("Storing new exchanges for superstructure.".format(len(builder.missing_exchanges)))
             builder.expand_superstructure()
         return builder
+
+    def find_missing_activities(self) -> None:
+        """Iterate through the delta databases and find missing activities."""
+        for d in self.selected_deltas:
+            d_set, d_list = find_missing_activities(self.unique_codes, d)
+            self.missing_activities.extend(d_list)
+            self.unique_codes = self.unique_codes.union(d_set)
+            print("{} adds {} new activities to superstructure".format(d, len(d_set)))
 
     def find_missing_exchanges(self) -> None:
         """Iterate through the delta databases and find the missing exchanges."""
