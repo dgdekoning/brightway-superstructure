@@ -11,7 +11,7 @@ from .brightway import (
     swap_exchange_activities, nullify_exchanges,
     check_for_invalid_codes, handle_code_weirdness,
 )
-from .utils import SUPERSTRUCTURE, TO_ALL
+from .utils import SUPERSTRUCTURE, FROM_ALL, TO_ALL
 
 
 class Builder(object):
@@ -192,6 +192,8 @@ class Builder(object):
         """Ensure the dataframe is complete by matching the output activity
         keys.
         """
+        substitute = convert_key_to_fields(df.loc[:, FROM_ALL])
+        df[substitute.columns] = substitute
         substitute = convert_key_to_fields(df.loc[:, TO_ALL])
         df[substitute.columns] = substitute
         return df
