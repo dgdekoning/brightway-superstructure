@@ -108,7 +108,7 @@ class Builder(object):
                 if i % 1000 == 0:
                     txn.commit()
 
-    def build_complete_superstructure(self) -> None:
+    def build_superstructure(self) -> None:
         """After initializing the superstructure, construct difference data."""
         assert self.name is not None, "Superstructure name is not set."
         assert self.selected_deltas, "No deltas found for superstructure."
@@ -173,6 +173,15 @@ class Builder(object):
         else:
             print("No unknown keys found.")
 
+    def finalize_superstructure(self) -> None:
+        """Ensure the dataframe is complete by matching the output activity
+        keys.
+        """
+        substitute = convert_key_to_fields(self.superstructure.loc[:, FROM_ALL])
+        self.superstructure[substitute.columns] = substitute
+        substitute = convert_key_to_fields(self.superstructure.loc[:, TO_ALL])
+        self.superstructure[substitute.columns] = substitute
+
     @staticmethod
     def construct_ss_dictionary(data: Iterable) -> dict:
         """Construct an initial dictionary for the superstructure."""
@@ -212,17 +221,6 @@ class Builder(object):
             for row in data.values()
         ], columns=df_index)
 
-        return df
-
-    @staticmethod
-    def finalize_superstructure(df: pd.DataFrame) -> pd.DataFrame:
-        """Ensure the dataframe is complete by matching the output activity
-        keys.
-        """
-        substitute = convert_key_to_fields(df.loc[:, FROM_ALL])
-        df[substitute.columns] = substitute
-        substitute = convert_key_to_fields(df.loc[:, TO_ALL])
-        df[substitute.columns] = substitute
         return df
 
     @staticmethod
