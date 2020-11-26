@@ -57,6 +57,8 @@ class Builder(object):
         elif superstructure not in bw.databases:
             db = bw.Database(superstructure)
             db.register()
+        elif superstructure in databases:
+            databases.remove(superstructure)
         print("Superstructure: {}, deltas: {}".format(superstructure, ", ".join(databases)))
         builder = cls.initialize(superstructure, databases)
         print("Amount of activities in superstructure: {}".format(len(builder.unique_codes)))
