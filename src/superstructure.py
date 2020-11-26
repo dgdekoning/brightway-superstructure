@@ -8,10 +8,11 @@ import pandas as pd
 from .brightway import (
     convert_key_to_fields, select_superstructure_indexes,
     find_missing_exchanges, select_exchange_data,
-    swap_exchange_activities, nullify_exchanges,
     check_for_invalid_codes, handle_code_weirdness,
+    select_superstructure_codes, find_missing_activities,
+    structure_activities, structure_exchanges,
 )
-from .utils import SUPERSTRUCTURE, TO_ALL
+from .utils import SUPERSTRUCTURE, FROM_ALL, TO_ALL
 
 
 class Builder(object):
@@ -19,9 +20,11 @@ class Builder(object):
         # Initial values for the builder to set.
         self.name: Optional[str] = None
         self.selected_deltas: list = []
+        self.unique_codes: set = set()
         self.unique_indexes: set = set()
 
-        # Values created by finding exchanges missing from superstructure.
+        # Values created by finding missing data from superstructure.
+        self.missing_activities: list = []
         self.missing_exchanges: list = []
 
         # Actual superstructure scenario dataframe.
@@ -34,27 +37,45 @@ class Builder(object):
         """
         builder = cls()
         builder.name = initial
+        builder.unique_codes = select_superstructure_codes(initial)
         builder.unique_indexes = select_superstructure_indexes(initial)
         builder.selected_deltas = deltas
         return builder
 
     @classmethod
-    def superstructure_from_databases(cls, databases: List[str]) -> 'Builder':
+    def superstructure_from_databases(cls, databases: List[str], superstructure: str) -> 'Builder':
+        """Given a list of database names and the name of the superstructure,
+        upgrade or create the superstructure database.
         """
-        docstring
-        """
-        assert len(databases) > 1, "Multiple items required"
+        assert len(databases) >= 1, "At least one database should be included"
+        assert len(databases) == len(set(databases)), "Duplicates are not allowed in the databases"
         assert all(db in bw.databases for db in databases), "All databases must exist in the project"
-        initial, deltas = databases[0], databases[1:]
-        print("Superstructure: {}, deltas: {}".format(initial, ", ".join(deltas)))
-        builder = cls.initialize(initial, deltas)
+        if superstructure not in bw.databases:
+            db = bw.Database(superstructure)
+            db.register()
+        print("Superstructure: {}, deltas: {}".format(superstructure, ", ".join(databases)))
+        builder = cls.initialize(superstructure, databases)
+        print("Amount of activities in superstructure: {}".format(len(builder.unique_codes)))
+        builder.find_missing_activities()
+        print("Total amount of activities in superstructure: {}".format(len(builder.unique_codes)))
+        if builder.missing_activities:
+            print("Storing {} new activities for superstructure.".format(len(builder.missing_activities)))
+            builder.expand_superstructure_activities()
         print("Amount of exchanges in superstructure: {}".format(len(builder.unique_indexes)))
         builder.find_missing_exchanges()
         print("Total amount of exchanges in superstructure: {}".format(len(builder.unique_indexes)))
         if builder.missing_exchanges:
-            print("Storing new exchanges for superstructure.".format(len(builder.missing_exchanges)))
-            builder.expand_superstructure()
+            print("Storing {} new exchanges for superstructure.".format(len(builder.missing_exchanges)))
+            builder.expand_superstructure_exchanges()
         return builder
+
+    def find_missing_activities(self) -> None:
+        """Iterate through the delta databases and find missing activities."""
+        for d in self.selected_deltas:
+            d_set, d_list = find_missing_activities(self.unique_codes, d)
+            self.missing_activities.extend(d_list)
+            self.unique_codes = self.unique_codes.union(d_set)
+            print("{} adds {} new activities to superstructure".format(d, len(d_set)))
 
     def find_missing_exchanges(self) -> None:
         """Iterate through the delta databases and find the missing exchanges."""
@@ -64,16 +85,22 @@ class Builder(object):
             self.unique_indexes = self.unique_indexes.union(d_set)
             print("{} adds {} new exchanges to superstructure".format(d, len(d_set)))
 
-    def expand_superstructure(self) -> None:
+    def expand_superstructure_activities(self) -> None:
+        """Store the missing activities found by `find_missing_activities`."""
+        new_activities = structure_activities(self.missing_activities, self.name)
+        with sqlite3_lci_db.transaction() as txn:
+            for i, act in enumerate(new_activities):
+                act.save()
+                if i % 1000 == 0:
+                    txn.commit()
+
+    def expand_superstructure_exchanges(self) -> None:
         """Given that we have an initialized Builder, prepare and store
         the new exchanges.
         """
         deltas_set = set(self.selected_deltas)
-        nulled = nullify_exchanges([x.data for x in self.missing_exchanges])
-        # Prepare new exchanges by swapping the
-        new_excs = [
-            swap_exchange_activities(row, self.name, deltas_set) for row in nulled
-        ]
+        # Prepare new exchanges
+        new_excs = structure_exchanges(self.missing_exchanges, self.name, deltas_set)
         # Save all of the new exchanges to the superstructure database.
         with sqlite3_lci_db.transaction() as txn:
             for i, exc in enumerate(new_excs):
@@ -81,7 +108,7 @@ class Builder(object):
                 if i % 1000 == 0:
                     txn.commit()
 
-    def build_complete_superstructure(self) -> None:
+    def build_superstructure(self) -> None:
         """After initializing the superstructure, construct difference data."""
         assert self.name is not None, "Superstructure name is not set."
         assert self.selected_deltas, "No deltas found for superstructure."
@@ -146,6 +173,15 @@ class Builder(object):
         else:
             print("No unknown keys found.")
 
+    def finalize_superstructure(self) -> None:
+        """Ensure the dataframe is complete by matching the output activity
+        keys.
+        """
+        substitute = convert_key_to_fields(self.superstructure.loc[:, FROM_ALL])
+        self.superstructure[substitute.columns] = substitute
+        substitute = convert_key_to_fields(self.superstructure.loc[:, TO_ALL])
+        self.superstructure[substitute.columns] = substitute
+
     @staticmethod
     def construct_ss_dictionary(data: Iterable) -> dict:
         """Construct an initial dictionary for the superstructure."""
@@ -185,15 +221,6 @@ class Builder(object):
             for row in data.values()
         ], columns=df_index)
 
-        return df
-
-    @staticmethod
-    def finalize_superstructure(df: pd.DataFrame) -> pd.DataFrame:
-        """Ensure the dataframe is complete by matching the output activity
-        keys.
-        """
-        substitute = convert_key_to_fields(df.loc[:, TO_ALL])
-        df[substitute.columns] = substitute
         return df
 
     @staticmethod

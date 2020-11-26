@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-from typing import List
+from typing import List, Tuple
 
 from bw2data.backends.peewee import (
-    Exchange, ActivityDataset as AD, ExchangeDataset as ED
+    Activity, Exchange, ActivityDataset as AD, ExchangeDataset as ED
 )
 import numpy as np
 import pandas as pd
@@ -80,6 +80,43 @@ def handle_code_weirdness(codes: set, dbs: set, struct_db: str) -> dict:
     return final
 
 
+def select_superstructure_codes(struct: str) -> set:
+    query = (AD.select(AD.code)
+             .where(AD.database == struct)
+             .distinct()
+             .tuples())
+    codes = set(x[0] for x in query.iterator())
+    return codes
+
+
+def find_missing_activities(existing_codes: set, delta: str) -> Tuple[set, list]:
+    query = (AD.select(AD.code)
+             .where(AD.database == delta)
+             .distinct()
+             .tuples())
+    diff = set(x[0] for x in query.iterator()).difference(existing_codes)
+    # Now query again, and create a list of Activities of the diff.
+    query = (AD.select()
+             .where((AD.database == delta) & (AD.code.in_(diff))))
+    diff_list = [Activity(x) for x in query.iterator()]
+    return diff, diff_list
+
+
+def structure_activities(data: List[Activity], db_name: str) -> List[Activity]:
+    """Takes a list of activity objects and generates a list of new Activity
+    objects with the (output) database name altered.
+    """
+    altered = []
+    for act in data:
+        activity = Activity()
+        for key, value in act.items():
+            activity[key] = value
+        # Alter the database.
+        activity._data["database"] = db_name
+        altered.append(activity)
+    return altered
+
+
 # Exchanges
 def select_superstructure_indexes(struct: str) -> set:
     query = (ED.select(ED.input_code, ED.output_code)
@@ -89,60 +126,45 @@ def select_superstructure_indexes(struct: str) -> set:
     return indexes
 
 
-def select_exchanges_by_database_codes(db_name: str, codes: set):
-    inputs = set(x[0] for x in codes)
-    outputs = set(x[1] for x in codes)
-    query = (ED.select()
-             .where((ED.output_database == db_name) &
-                    (ED.input_code.in_(inputs)) &
-                    (ED.output_code.in_(outputs)))
-             .namedtuples())
-    return query
-
-
-def find_missing_exchanges(superstruct: set, delta: str) -> (set, list):
+def find_missing_exchanges(superstruct: set, delta: str) -> Tuple[set, list]:
     query = (ED.select(ED.input_code, ED.output_code)
              .where(ED.output_database == delta)
              .distinct()
              .tuples())
     diff = set(x for x in query.iterator()).difference(superstruct)
     # Now query again, and create a list of exchanges of the diff.
-    query = select_exchanges_by_database_codes(delta, diff)
-    diff_list = [x for x in query.iterator()]
+    inputs = set(x[0] for x in diff)
+    outputs = set(x[1] for x in diff)
+    query = (ED.select(ED.data)
+             .where((ED.output_database == delta) &
+                    (ED.input_code.in_(inputs)) &
+                    (ED.output_code.in_(outputs)))
+             .tuples())
+    diff_list = [x[0] for x in query.iterator()]
     return diff, diff_list
 
 
 def select_exchange_data(db_name: str):
     query = (ED.select(ED.data)
              .where((ED.output_database == db_name) &
-                    (ED.type.in_(["biosphere", "technosphere"])))
+                    (ED.type.in_(["biosphere", "technosphere", "production"])))
              .tuples())
     data = (x[0] for x in query.iterator())
     return data
 
 
-def nullify_exchanges(data: List[dict]) -> List[dict]:
-    """Take a list of exchange dictionaries, extract all the amounts
-    and set the 'amount' in the dictionaries to 0."""
-    def set_null(d):
-        d["amount"] = 0
-        return d
-    nulled = list(map(set_null, data))
-    return nulled
-
-
-def swap_exchange_activities(data: dict, super_db: str, delta_set: set) -> Exchange:
-    """Take the exchange data and replace one or two activities inside with
-    new ones containing the same information.
-
-    This works best with activities constructed like those of ecoinvent.
+def structure_exchanges(data: List[dict], super_db: str, deltas: set) -> List[Exchange]:
+    """Take a list of dictionaries and structure them into a list of Exchange
+    objects, adjusted for the superstructure database.
     """
-    in_key = data.get("input", ("",))
-    out_key = data.get("output", ("",))
-    if in_key[0] in delta_set:
-        data["input"] = (super_db, in_key[1])
-    if out_key[0] in delta_set:
-        data["output"] = (super_db, out_key[1])
-    # Constructing the Exchange this way will cause a new row to be written
-    e = Exchange(**data)
-    return e
+    def alter_data(d):
+        d["amount"] = 0
+        key = d["input"]
+        d["input"] = (super_db, key[1]) if key[0] in deltas else key
+        key = d["output"]
+        d["output"] = (super_db, key[1]) if key[0] in deltas else key
+        return d
+
+    altered_exchanges = map(alter_data, data)
+    new_exchanges = [Exchange(**exc) for exc in altered_exchanges]
+    return new_exchanges
