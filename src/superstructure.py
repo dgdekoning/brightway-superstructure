@@ -130,6 +130,9 @@ class Builder(object):
         scen_idx = self.superstructure.columns.difference(SUPERSTRUCTURE, sort=False)
         delta_idx = scen_idx.drop([self.name])
 
+        # Drop the superstructure column
+        self.superstructure = self.superstructure.loc[:, SUPERSTRUCTURE.append(delta_idx)]
+
         # First, drop the rows where no delta file has any changes.
         only_nans = self.superstructure[delta_idx].isna().all(axis=1)
         self.superstructure = self.superstructure.drop(
@@ -137,7 +140,7 @@ class Builder(object):
         )
 
         # Now, drop the rows where there are no differences between the scenarios
-        same_vals = self.superstructure[scen_idx].nunique(axis=1) == 1
+        same_vals = self.superstructure[delta_idx].nunique(axis=1) == 1
         self.superstructure = self.superstructure.drop(
             self.superstructure.index[same_vals]
         )
