@@ -43,16 +43,22 @@ class Builder(object):
         return builder
 
     @classmethod
-    def superstructure_from_databases(cls, databases: List[str], superstructure: str) -> 'Builder':
+    def superstructure_from_databases(cls, databases: List[str],
+                                      superstructure: Optional[str] = None) -> 'Builder':
         """Given a list of database names and the name of the superstructure,
         upgrade or create the superstructure database.
         """
         assert len(databases) >= 1, "At least one database should be included"
         assert len(databases) == len(set(databases)), "Duplicates are not allowed in the databases"
         assert all(db in bw.databases for db in databases), "All databases must exist in the project"
-        if superstructure not in bw.databases:
+        if superstructure is None:
+            # Default to first db in list if no name is given
+            superstructure, databases = databases[0], databases[1:]
+        elif superstructure not in bw.databases:
             db = bw.Database(superstructure)
             db.register()
+        elif superstructure in databases:
+            databases.remove(superstructure)
         print("Superstructure: {}, deltas: {}".format(superstructure, ", ".join(databases)))
         builder = cls.initialize(superstructure, databases)
         print("Amount of activities in superstructure: {}".format(len(builder.unique_codes)))
@@ -127,17 +133,9 @@ class Builder(object):
         """Take the built superstructure and drop any exchanges where there
         is no differences between all databases.
         """
-        scen_idx = self.superstructure.columns.difference(SUPERSTRUCTURE, sort=False)
-        delta_idx = scen_idx.drop([self.name])
-
-        # First, drop the rows where no delta file has any changes.
-        only_nans = self.superstructure[delta_idx].isna().all(axis=1)
-        self.superstructure = self.superstructure.drop(
-            self.superstructure.index[only_nans]
-        )
-
-        # Now, drop the rows where there are no differences between the scenarios
-        same_vals = self.superstructure[scen_idx].nunique(axis=1) == 1
+        # Drop the rows where there are no differences between the scenarios
+        idx = self.superstructure.columns.difference(SUPERSTRUCTURE, sort=False)
+        same_vals = self.superstructure[idx].nunique(axis=1) == 1
         self.superstructure = self.superstructure.drop(
             self.superstructure.index[same_vals]
         )
@@ -145,12 +143,9 @@ class Builder(object):
         # Reset the index to clean up all of the unused indexes.
         self.superstructure = self.superstructure.reset_index(drop=True)
 
-        # Finally, replace any NaN values in the delta amounts with a 0
-        missing = delta_idx[self.superstructure[delta_idx].isna().any()]
-        if not missing.empty:
-            self.superstructure[missing] = self.superstructure[missing].apply(
-                lambda x: x.fillna(0), axis=1
-            )
+        # Drop the superstructure column
+        delta_idx = idx.drop([self.name])
+        self.superstructure = self.superstructure.loc[:, SUPERSTRUCTURE.append(delta_idx)]
 
     def validate_superstructure(self) -> None:
         """Parse the DataFrame and check that all the relevant keys exist in
