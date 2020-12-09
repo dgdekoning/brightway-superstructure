@@ -158,7 +158,8 @@ def structure_exchanges(data: List[dict], super_db: str, deltas: set) -> List[Ex
     objects, adjusted for the superstructure database.
     """
     def alter_data(d):
-        d["amount"] = 0 if d["type"] != "production" else 1
+        amount = d.get("amount")
+        d["amount"] = amount if d["type"] == "production" else 0
         key = d["input"]
         d["input"] = (super_db, key[1]) if key[0] in deltas else key
         key = d["output"]
