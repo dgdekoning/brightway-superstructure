@@ -12,7 +12,32 @@ from .brightway import (
     select_superstructure_codes, find_missing_activities,
     structure_activities, structure_exchanges,
 )
-from .utils import SUPERSTRUCTURE, FROM_ALL, TO_ALL
+
+
+SUPERSTRUCTURE = pd.Index([
+    "from activity name",
+    "from reference product",
+    "from location",
+    "from categories",
+    "from database",
+    "from key",
+    "to activity name",
+    "to reference product",
+    "to location",
+    "to categories",
+    "to database",
+    "to key",
+    "flow type",
+])
+FROM_ALL = pd.Index([
+    "from activity name", "from reference product", "from location",
+    "from categories", "from database", "from key"
+])
+TO_ALL = pd.Index([
+    "to activity name", "to reference product", "to location", "to categories",
+    "to database", "to key"
+])
+
 
 
 class Builder(object):
