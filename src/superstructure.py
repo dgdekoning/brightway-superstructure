@@ -262,6 +262,7 @@ class Builder(object):
             "from database": inp[0], "from key": inp,
             "to database": outp[0], "to key": outp,
             "from activity name": ss_exc.get("name"),
+            "flow type": ss_exc.get("type"),
         }
         if "type" in ss_exc and ss_exc["type"] == "biosphere":
             result["from categories"] = ss_exc.get("categories")
