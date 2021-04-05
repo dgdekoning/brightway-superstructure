@@ -42,6 +42,7 @@ SUPERSTRUCTURE = pd.Index([
     "to categories",
     "to database",
     "to key",
+    "flow type",
 ])
 
 
