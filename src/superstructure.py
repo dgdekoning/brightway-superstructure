@@ -158,19 +158,22 @@ class Builder(object):
         """Take the built superstructure and drop any exchanges where there
         is no differences between all databases.
         """
-        # Drop the rows where there are no differences between the scenarios
-        idx = self.superstructure.columns.difference(SUPERSTRUCTURE, sort=False)
-        same_vals = self.superstructure[idx].nunique(axis=1) == 1
+        # Find rows where there are no differences between all scenario values
+        scen_idx = self.superstructure.columns.difference(SUPERSTRUCTURE, sort=False)
+        same_vals = self.superstructure[scen_idx].nunique(axis=1) == 1
+
+        # Find production exchanges where any scenario changes the value to 0.
+        delta_idx = scen_idx.drop([self.name])
+        prod_zeros = ((self.superstructure["flow type"] == "production") &
+                        (self.superstructure[delta_idx].eq(0).any(axis=1)))
+
+        # Combine the filters
+        to_remove = (same_vals | prod_zeros)
+
+        # Drop the filtered indexes and superstructure column
         self.superstructure = self.superstructure.drop(
-            self.superstructure.index[same_vals]
-        )
-
-        # Reset the index to clean up all of the unused indexes.
-        self.superstructure = self.superstructure.reset_index(drop=True)
-
-        # Drop the superstructure column
-        delta_idx = idx.drop([self.name])
-        self.superstructure = self.superstructure.loc[:, SUPERSTRUCTURE.append(delta_idx)]
+            self.superstructure.index[to_remove]
+        ).drop(columns=self.name).reset_index(drop=True)
 
     def validate_superstructure(self) -> None:
         """Parse the DataFrame and check that all the relevant keys exist in
